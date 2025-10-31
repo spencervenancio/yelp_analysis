@@ -32,13 +32,20 @@ def add_total_hours(df: pd.DataFrame) -> pd.DataFrame:
     df['total_hours_open'] = hours
     return df
 
-def add_categories(df: pd.DataFrame) -> pd.DataFrame:
-    """Add boolean columns for each category in over10000 to the dataframe."""
-    cat = df.categories
-    over10000 = cat.value_counts()[cat.value_counts() > 1000]
-    for category in over10000.index: 
-        df[category] = df.categories.str.contains(category)
-    return df
+
+def add_categories(df: pd.DataFrame, threshold: int = 1000) -> pd.DataFrame:
+    """ Adds one-hot encoded category columns to the DataFrame for categories that appear more than `threshold` times."""
+    dummies = (
+        df["categories"]
+        .str.get_dummies(sep=",")                 
+        .rename(columns=lambda s: s.strip())       
+    )
+
+    common_cols = dummies.sum(axis=0)
+    keep = common_cols[common_cols > threshold].index
+
+    out = pd.concat([df, dummies[keep]], axis=1)
+    return out
 
 
 @app.command()
