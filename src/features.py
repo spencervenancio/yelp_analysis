@@ -8,44 +8,56 @@ import pandas as pd
 
 from src.config import PROCESSED_DATA_DIR
 
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
+
+
 app = typer.Typer()
 
-def add_total_hours(df: pd.DataFrame) -> pd.DataFrame: 
-    """ Adds a column to the DataFrame with total hours open per week. Requires 'hours' column to be present."""
-    
-    def process_hours(hours_str: str) -> timedelta:
-        """Processes a string representing opening hours and returns the total open time as a timedelta."""
-        if hours_str is None:
-            return 0  # return zero time if hours are not available
-        total = timedelta()
+
+def add_total_hours(df: pd.DataFrame, inplace: bool = False) -> pd.DataFrame:
+    """Adds a column to the DataFrame with total hours open per week. Requires 'hours' column to be present."""
+
+    def _process_hours(hours_str) -> pd.Timedelta:
+        if hours_str is None or pd.isna(hours_str):
+            return pd.Timedelta(0)
+
+        if isinstance(hours_str, (bytes, bytearray)):
+            try:
+                hours_str = hours_str.decode("utf-8")
+            except Exception:
+                return pd.Timedelta(0)
+
+        if hours_str is None or pd.isna(hours_str) or not hasattr(hours_str, "values"):
+            return pd.Timedelta(0)
+
+        total = pd.Timedelta(0)
         for day in hours_str.values():
-            start_str, end_str = day.split('-')
+            start_str, end_str = day.split("-", 1)
+            delta = pd.Timedelta(
+                datetime.strptime(end_str, "%H:%M") - datetime.strptime(start_str, "%H:%M")
+            )
+            if delta < pd.Timedelta(0):
+                delta += pd.Timedelta(days=1)
+            total += delta
 
-            start = datetime.strptime(start_str, "%H:%M")
-            end = datetime.strptime(end_str, "%H:%M")
+        return total
 
-            delta = end - start
-            total += delta  # add up timedelta objects
-        return total.seconds / 3600  # convert to hour
-    
-    hours = df.hours.apply(process_hours)
-    df['total_hours_open'] = hours
+    if not inplace:
+        df = df.copy()
+
+    hours = df.hours.apply(_process_hours)
+    df["total_hours_open"] = hours / pd.Timedelta(hours=1)  # convert to hours
     return df
 
 
-def add_categories(df: pd.DataFrame, threshold: int = 1000) -> pd.DataFrame:
-    """ Adds one-hot encoded category columns to the DataFrame for categories that appear more than `threshold` times."""
-    dummies = (
-        df["categories"]
-        .str.get_dummies(sep=",")                 
-        .rename(columns=lambda s: s.strip())       
-    )
+def is_restaurant(df: pd.DataFrame, inplace: bool = False) -> pd.DataFrame:
+    """ Adds a boolean column 'is_restaurant' to indicate if the business is a restaurant."""
+    if not inplace:
+        df = df.copy()  
+    
+    return df[df.Restaurants == True]
 
-    common_cols = dummies.sum(axis=0)
-    keep = common_cols[common_cols > threshold].index
-
-    out = pd.concat([df, dummies[keep]], axis=1)
-    return out
 
 
 @app.command()
